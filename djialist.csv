@@ -1,0 +1,50 @@
+Company;Ticker;Current Component;Added;Removed
+3M Company;MMM;Y;08.04.2004;-
+Alcoa Inc.;AA;N;09.04.2004;23.09.2013
+Altria Group Incorporated;MO;N;10.04.2004;19.02.2008
+American Express Company;AXP;Y;11.04.2004;-
+American International Group, Inc.;AIG;N;12.04.2004;22.09.2008
+The Boeing Company;BA;Y;13.04.2004;-
+Caterpillar Inc.;CAT;Y;14.04.2004;-
+Citigroup Inc.;C;N;15.04.2004;08.06.2009
+The Coca-Cola Company;KO;Y;16.04.2004;-
+E.I. du Pont de Nemours & Company;DD;N;17.04.2004;01.09.2017
+Exxon Mobil Corporation;XOM;N;18.04.2004;31.08.2020
+General Electric Company;GE;N;19.04.2004;26.06.2018
+General Motors Corporation;GM;N;20.04.2004;08.06.2009
+Hewlett-Packard Company;HPQ;N;21.04.2004;23.09.2013
+The Home Depot, Inc.;HD;Y;22.04.2004;-
+Honeywell International;HON;N;23.04.2004;19.02.2008
+Intel Corporation;INTC;Y;24.04.2004;-
+International Business Machines Corporation;IBM;Y;25.04.2004;-
+Johnson & Johnson;JNJ;Y;26.04.2004;-
+JPMorgan Chase & Co.;JPM;Y;27.04.2004;-
+McDonald's Corporation;MCD;Y;28.04.2004;-
+Merck & Co., Inc.;MRK;Y;29.04.2004;-
+Microsoft Corporation;MSFT;Y;30.04.2004;-
+Pfizer Inc.;PFE;N;01.05.2004;31.08.2020
+The Procter & Gamble Company;PG;Y;02.05.2004;-
+SBC Communications Inc.;T;N;03.05.2004;21.11.2005
+United Technologies Corporation;RTX;N;04.05.2004;06.04.2020
+Verizon Communications Inc.;VZ;Y;05.05.2004;-
+Wal-Mart Stores, Inc.;WMT;N;06.05.2004;01.02.2018
+The Walt Disney Company;DIS;Y;07.05.2004;-
+AT&T Inc.;T;N;21.11.2005;19.03.2015
+Bank of America Corporation ;BAC;N;19.02.2008;23.09.2013
+Chevron Corporation ;CVX;Y;19.02.2008;-
+Kraft Foods Inc.;MDLZ;N;22.09.2008;24.09.2012
+Cisco Systems, Inc.;CSCO;Y;08.06.2009;-
+The Travelers Companies, Inc.;TRV;Y;08.06.2009;-
+UnitedHealth Group Incorporated;UNH;Y;24.09.2012;-
+Nike, Inc.;NKE;Y;23.09.2013;-
+The Goldman Sachs Group, Inc.;GS;Y;23.09.2013;-
+Visa Inc.;V;Y;23.09.2013;-
+Apple Inc.;AAPL;Y;19.03.2015;-
+DowDuPont Inc.;DD;N;01.09.2017;02.04.2019
+Walmart Inc.;WMT;Y;01.02.2018;-
+Walgreens Boots Alliance, Inc.;WBA;Y;26.06.2018;-
+Dow Inc.;DOW;Y;02.04.2019;-
+Raytheon Technologies Corporation;RTX;N;06.04.2020;31.08.2020
+Amgen Inc.;AMGN;Y;31.08.2020;-
+Honeywell International Inc.;HON;Y;31.08.2020;-
+Salesforce, Inc.;CRM;Y;31.08.2020;-

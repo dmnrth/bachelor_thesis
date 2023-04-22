@@ -1,0 +1,232 @@
+---
+title: "05 XGBoost Forecasts"
+---
+
+Loading required libraries
+
+```{r}
+libraries <- c("aTSA", "forecast", "nloptr", "quantmod", "xgboost", "xts", "zoo")
+
+for(i in libraries){
+  installed <- require(i, character.only = TRUE)
+  
+  if(installed == FALSE){
+    install.packages(i)
+  }
+}
+
+rm(i, installed, libraries)
+```
+
+Loading constituents list for the first day of every month
+
+```{r}
+df <- read.csv("c_list.csv", sep = ",", header = TRUE, row.names = 1)
+df <- as.xts(df)
+```
+
+Loading price data
+
+```{r}
+load("price_data.Rda")
+```
+
+Initializing functions required to handle time data
+
+```{r}
+get_month_length <- function(date){
+  year <- as.numeric(format(date, '%Y'))
+  if((year %% 4 == 0 & year %% 100 != 0) | year %% 400 == 0){
+    month_days_number = c(31,29,31,30,31,30,31,31,30,31,30,31)
+  }else{
+    month_days_number = c(31,28,31,30,31,30,31,31,30,31,30,31)
+  }
+  
+  month <- as.numeric(format(date, '%m'))
+  return(month_days_number[month])
+}
+
+months_forward <- function(date, n){
+  if(n == 0){
+    return(date)
+  }
+  
+  new_date <- date
+  for(i in 1:n){
+    new_date = new_date + get_month_length(new_date)
+  }
+  
+  return(new_date)
+}
+```
+
+```{r}
+# subset - in-sample returns
+# oos_index - out-of-sample indices (and ONLY indices, for the data frame index management)
+
+get_xgb_forecasts <- function(subset, oos_index, n, nrounds, eta, gamma, max_depth, lambda, subsample)
+{
+  subset <- as.xts(subset)
+  
+  defaultW <- getOption("warn") 
+  options(warn = -1) 
+
+  for(a in 1:30){
+    
+    if(a == 1){
+      subset <- na.omit(subset)
+      subset$returns <- log(subset$close / lag(subset$close, k = 1))
+      subset <- subset[,-1]
+    }
+    
+    set.seed(2611)
+    
+    # shifted returns
+    
+    if(a == 1){
+      for(b in 1:n){
+        temp <- lag(subset$returns, k = b)
+        subset <- cbind(subset, temp)
+      }
+      #label
+      subset$label <- lag(subset$returns, k = -1)
+      subset <- subset[-c(seq(1, n+1))]
+    }
+    
+    if(a != 1){
+      for(b in 1:n){
+        subset[length(subset$returns), 1 + b] <- subset[length(subset$returns) - b, "returns"]
+      }
+    }
+    
+    subset = as.xts(subset)
+    
+    # XGBoost
+    
+    if(a == 1){
+      train <- as.matrix(subset[, 1:(length(colnames(subset))-1)])
+      len <- length(train[,1])-1
+      train <- train[1:len,]
+      
+      label <- as.matrix(subset[,length(colnames(subset))])
+      label <- label[1:len,]
+    
+    
+      params <- list(booster = "gbtree", objective = "reg:squarederror", eta = eta, gamma = gamma, max_depth = max_depth, 
+                     lambda = lambda, subsample = subsample)
+      
+      model <- xgboost(params = params, data = train, label = label, nrounds = nrounds, verbose = F)
+    }
+    
+    pred_vars <- as.matrix(subset[length(subset$returns), 1:(length(colnames(subset))-1)])
+    
+    pred <- predict(model, pred_vars)
+    
+    dff <- data.frame(t(rep(NA, length(colnames(subset)))))
+    rownames(dff) <- oos_index[a]
+    dff <- as.xts(dff)
+    
+    subset <- rbind(subset, dff)
+    subset$returns[length(subset$returns),] <- pred
+  }
+  
+  pred_returns <- subset$returns[(length(subset$returns)-29):(length(subset$returns))]
+  
+  options(warn = defaultW)
+  return(pred_returns)
+}
+
+```
+
+```{r}
+# ------ PARAMETER SETTING SECTION ------
+
+#portfolio rebalancing window length (months)
+f <- 1
+
+#number of assets
+n <- 30
+
+#estimation window (months)
+t <- 12
+
+#beginning date of the first estimation window
+start_date <- as.Date('2006-01-01', '%Y-%m-%d')
+
+#n parameter for XGBoost feature engineering
+n_param <- 10
+
+#XGBoost hyperparameters:
+
+nrounds <- 100 #base case: 100, SA: 50, 200
+
+eta <- 0.3 #base case: 0.3, SA: 0.01, 0.05, 0.1
+
+gamma <- 0 #base case: 0, SA: 0.1, 0.2
+
+lambda <- 1 #base case: 1, SA: 0.5, 5, 10
+
+max_depth <- 6 #base case: 6, SA: 3, 9, 12
+
+subsample <- 1 #base case: 1, SA: 0.5, 0.75
+
+#path for the results folder
+path_folder <- "xgboost_forecasts"
+path <- paste0(path_folder, "/")
+
+# ------ END OF PARAMETER SETTING SECTION ------
+
+ptm <- proc.time()
+
+for(i in 0:191){ #191
+  
+  forecasts_df <- data.frame()
+  forecasts_df_colnames <- NULL
+  
+  for(j in 1:30){ #30
+    
+    if(df[months_forward(start_date, i+t), j] != "GM"){
+      print(paste("Period no (i + 1): ", i + 1, "/192 - Stock no (j): ", j, "/30 - Progress: ", round((j + i * 30) / ( 192 * 30 ) * 100, digits = 2), "%" , sep = ""))
+      
+      subset <- price_data[paste0(months_forward(start_date, i), "/", months_forward(start_date, i+t)-1), df[paste(months_forward(start_date, i+t)), j]]
+      colname_to_results <- colnames(subset)
+      colnames(subset) <- c("close")
+      
+      oos_index <- rownames(data.frame(price_data[paste0(months_forward(start_date, i + t), "/", months_forward(start_date, i+t+2), sep = ""), 1]))
+      oos_index <- oos_index[1:30]
+      
+      if(i == 191){
+        lmao <- getSymbols("MMM", from = "2022-12-01", to = "2023-03-01", env = NULL)
+        oos_index <- index(lmao)
+        oos_index <- oos_index[1:30]
+      }
+      
+      x <- NULL
+      x <- get_xgb_forecasts(subset, oos_index, n_param, nrounds, eta, gamma, max_depth, lambda, subsample)
+      
+      colnames(x) <- df[months_forward(start_date, i+t), j]
+        
+      if(j == 1){
+        forecasts_df <- x
+      } else {
+        forecasts_df <- cbind(forecasts_df, x)
+      }
+      
+      forecasts_df_colnames <- c(forecasts_df_colnames, colname_to_results)
+      
+      #readline()
+    }
+  }
+  
+  colnames(forecasts_df) <- forecasts_df_colnames
+  
+  write.csv(forecasts_df, file = paste(path, months_forward(start_date, i+t), ".csv", sep = ""))
+}
+
+proc.time() - ptm
+```
+
+
+
+
+

@@ -1,0 +1,403 @@
+---
+title: "04 ARMA-GARCH Forecasts high, middle and low capitalization groups"
+---
+
+Loading required libraries
+
+```{r}
+libraries <- c("aTSA", "forecast", "nloptr", "rugarch", "xts", "zoo")
+
+for(i in libraries){
+  installed <- require(i, character.only = TRUE)
+  
+  if(installed == FALSE){
+    install.packages(i)
+  }
+}
+
+rm(i, installed, libraries)
+```
+
+Loading constituents list for the day before the first day of every month
+
+```{r}
+load("df_high.Rda")
+load("df_mid.Rda")
+load("df_low.Rda")
+
+high <- as.xts(high)
+mid <- as.xts(mid)
+low <- as.xts(low)
+```
+
+Loading price data
+
+```{r}
+load("price_data.Rda")
+```
+
+Initializing functions required to handle time data
+
+```{r}
+get_month_length <- function(date){
+  year <- as.numeric(format(date, '%Y'))
+  if((year %% 4 == 0 & year %% 100 != 0) | year %% 400 == 0){
+    month_days_number = c(31,29,31,30,31,30,31,31,30,31,30,31)
+  }else{
+    month_days_number = c(31,28,31,30,31,30,31,31,30,31,30,31)
+  }
+  
+  month <- as.numeric(format(date, '%m'))
+  return(month_days_number[month])
+}
+
+months_forward <- function(date, n){
+  if(n == 0){
+    return(date)
+  }
+  
+  new_date <- date
+  for(i in 1:n){
+    new_date = new_date + get_month_length(new_date)
+  }
+  
+  return(new_date)
+}
+```
+
+```{r}
+# n - days ahead
+# p, q - ARMA order
+# garch_distr - garch error distribution
+# est_seed - seed
+
+get_garch_forecast <- function(returns, n, p, q, garch_distr, est_seed){
+  
+  set.seed(est_seed)
+
+  skip_garch <- FALSE
+  log <- " - solver converged, ARCH effects present - model: ARIMA-GARCH"
+  
+  test_model <- arima(returns, order = c(p, 0, q), include.mean = TRUE, method = "ML")
+  
+  arch_test <- arch.test(test_model, output = FALSE)
+  
+  if(min(arch_test[, 5]) > 0.05){
+    skip_garch = TRUE
+  }
+
+  specification <- ugarchspec(
+    variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+    mean.model = list(armaOrder = c(p, q), include.mean = TRUE), distribution.model = garch_distr)
+    
+  tryCatch(
+    expr = {model <- ugarchfit(spec = specification, data = returns)}, #, solver = "hybrid"
+    warning = function(e) {skip_garch <<- TRUE},
+    error = function(e) {skip_garch <<- TRUE}
+    )
+    
+  if(skip_garch == TRUE){
+    log <- " - either solver failed to converge or no ARCH effects - model: ARIMA"
+    model <- arima(returns, order = c(p, 0, q), include.mean = TRUE, method = "ML")
+    prediction <- predict(model, n.ahead = n)
+    return(list(prediction$pred, log))
+  } else {
+    prediction <- ugarchboot(model, n.ahead = n, method = c("Partial", "Full")[1], n.bootpred=10000, n.bootfit=10000)
+    return(list(prediction@forc@forecast$seriesFor, log))
+  }
+}
+```
+
+```{r}
+#seed: 2611
+
+###############
+# Highest cap #
+###############
+
+# ------ PARAMETER SETTING SECTION ------
+
+#portfolio rebalancing window length (months)
+f <- 1
+
+#number of assets
+n <- 10
+
+#estimation window (months)
+t <- 12
+
+#beginning date of the first estimation window (then first rebalancing period is start_date + t months)
+start_date <- as.Date('2006-01-01', '%Y-%m-%d')
+
+#path for the results folder
+path_folder <- "arima-garch_forecasts_H"
+path <- paste0(path_folder, "/")
+
+#description in the log file
+log_descr <- "ARIMA-GARCH Forecasts: SA - HML - H, seed: 2611"
+
+#ARIMA(p, 1, q) order
+p <- 2
+q <- 1
+
+#GARCH(1, 1) error distribution
+garch_error_distr <- "norm"
+
+# ------ END OF PARAMETER SETTING SECTION ------
+
+log_file <- data.frame(matrix(nrow = 1, ncol = 1))
+log_file[1, 1] <- log_descr
+
+ptm <- proc.time()
+
+for(i in 0:191){
+  
+  forecasts_df <- data.frame()
+  forecasts_df_colnames <- NULL
+  
+  for(j in 1:10){
+    
+    if(high[paste0(months_forward(start_date, i+t)), j] != "GM"){
+      print(paste("Period no (i + 1): ", i + 1, "/192 - Stock no (j): ", j, "/10 - Progress: ", round((j + i * 10) / ( 192 * 10 ) * 100, digits = 2), "%" , sep = ""))
+      
+      subset <- price_data[paste0(months_forward(start_date, i), "/", months_forward(start_date, i+t)-1), high[months_forward(start_date, i+t), j]]
+      
+      #print(df[months_forward(start_date, i+t), j])
+      
+      subset_logreturns <- log(subset / lag(subset, 1, na.pad=TRUE))
+      subset_logreturns <- na.omit(subset_logreturns)
+      
+      x <- NULL
+      x <- get_garch_forecast(subset_logreturns, 21, p, q, garch_error_distr, 2611)
+      
+      if(j == 1){
+        forecasts_df <- x[[1]]
+      } else {
+      forecasts_df <- cbind(forecasts_df, x[[1]])
+      }
+      
+      log_line <- paste0("[", Sys.time(), "] period: (", i + 1, "/192): ", months_forward(start_date, i), "/", months_forward(start_date, i+t)-1,
+                         " - stock: (", j, "/10): ", high[months_forward(start_date, i+t), j], 
+                         x[[2]])
+      
+      log_file <- rbind(log_file, log_line)
+      
+      forecasts_df_colnames <- c(forecasts_df_colnames, colnames(subset))
+      
+      #readline()
+    }
+  }
+  
+  colnames(forecasts_df) <- forecasts_df_colnames
+  
+  write.csv(forecasts_df, file = paste0(path, months_forward(start_date, i+t), ".csv", sep = ""))
+  
+  #print(df[months_forward(start_date, i+t)])
+  
+  
+  #print(paste(
+  #  "Estimation window: ", months_forward(start_date, i), "-", months_forward(start_date, i+t)-1,
+  #  "Rebalancing window: ", months_forward(start_date, i+t), "-", months_forward(start_date, i+t+f)-1))
+}
+
+write.table(log_file, file = paste0(path, "log.txt", sep = ""), sep = "", col.names = FALSE, row.names = FALSE, quote = FALSE)
+
+proc.time() - ptm
+```
+
+```{r}
+#seed: 2611
+ 
+###########
+# Mid cap #
+###########
+
+# ------ PARAMETER SETTING SECTION ------
+
+#portfolio rebalancing window length (months)
+f <- 1
+
+#number of assets
+n <- 10
+
+#estimation window (months)
+t <- 12
+
+#beginning date of the first estimation window (then first rebalancing period is start_date + t months)
+start_date <- as.Date('2006-01-01', '%Y-%m-%d')
+
+#path for the results folder
+path_folder <- "arima-garch_forecasts_M"
+path <- paste0(path_folder, "/")
+
+#description in the log file
+log_descr <- "ARIMA-GARCH Forecasts: SA - HML - M, seed: 2611"
+
+#ARIMA(p, 1, q) order
+p <- 2
+q <- 1
+
+#GARCH(1, 1) error distribution
+garch_error_distr <- "norm"
+
+# ------ END OF PARAMETER SETTING SECTION ------
+
+log_file <- data.frame(matrix(nrow = 1, ncol = 1))
+log_file[1, 1] <- log_descr
+
+ptm <- proc.time()
+
+for(i in 0:192){
+  
+  forecasts_df <- data.frame()
+  forecasts_df_colnames <- NULL
+  
+  for(j in 1:10){
+    
+    if(mid[months_forward(start_date, i+t), j] != "GM"){
+      print(paste("Period no (i + 1): ", i + 1, "/192 - Stock no (j): ", j, "/10 - Progress: ", round((j + i * 10) / ( 192 * 10 ) * 100, digits = 2), "%" , sep = ""))
+      
+      subset <- price_data[paste0(months_forward(start_date, i), "/", months_forward(start_date, i+t)-1), mid[months_forward(start_date, i+t), j]]
+      
+      #print(df[months_forward(start_date, i+t), j])
+      
+      subset_logreturns <- log(subset / lag(subset, 1, na.pad=TRUE))
+      subset_logreturns <- na.omit(subset_logreturns)
+      
+      x <- NULL
+      x <- get_garch_forecast(subset_logreturns, 21, p, q, garch_error_distr, 2611)
+      
+      if(j == 1){
+        forecasts_df <- x[[1]]
+      } else {
+      forecasts_df <- cbind(forecasts_df, x[[1]])
+      }
+      
+      log_line <- paste0("[", Sys.time(), "] period: (", i + 1, "/192): ", months_forward(start_date, i), "/", months_forward(start_date, i+t)-1,
+                         " - stock: (", j, "/10): ", mid[months_forward(start_date, i+t), j], 
+                         x[[2]])
+      
+      log_file <- rbind(log_file, log_line)
+      
+      forecasts_df_colnames <- c(forecasts_df_colnames, colnames(subset))
+      
+      #readline()
+    }
+  }
+  
+  colnames(forecasts_df) <- forecasts_df_colnames
+  
+  write.csv(forecasts_df, file = paste0(path, months_forward(start_date, i+t), ".csv", sep = ""))
+  
+  #print(df[months_forward(start_date, i+t)])
+  
+  
+  #print(paste(
+  #  "Estimation window: ", months_forward(start_date, i), "-", months_forward(start_date, i+t)-1,
+  #  "Rebalancing window: ", months_forward(start_date, i+t), "-", months_forward(start_date, i+t+f)-1))
+}
+
+write.table(log_file, file = paste0(path, "log.txt", sep = ""), sep = "", col.names = FALSE, row.names = FALSE, quote = FALSE)
+
+proc.time() - ptm
+```
+
+```{r}
+#seed: 
+
+##############
+# Lowest cap #
+##############
+
+# ------ PARAMETER SETTING SECTION ------
+
+#portfolio rebalancing window length (months)
+f <- 1
+
+#number of assets
+n <- 10
+
+#estimation window (months)
+t <- 12
+
+#beginning date of the first estimation window (then first rebalancing period is start_date + t months)
+start_date <- as.Date('2006-01-01', '%Y-%m-%d')
+
+#path for the results folder
+path_folder <- "arima-garch_forecasts_L"
+path <- paste0(path_folder, "/")
+
+#description in the log file
+log_descr <- "ARIMA-GARCH Forecasts: SA - HML - L, seed: 2611"
+
+#ARIMA(p, 1, q) order
+p <- 2
+q <- 1
+
+#GARCH(1, 1) error distribution
+garch_error_distr <- "norm"
+
+# ------ END OF PARAMETER SETTING SECTION ------
+
+log_file <- data.frame(matrix(nrow = 1, ncol = 1))
+log_file[1, 1] <- log_descr
+
+ptm <- proc.time()
+
+for(i in 0:191){ #148
+  
+  forecasts_df <- data.frame()
+  forecasts_df_colnames <- NULL
+  
+  for(j in 1:10){
+    
+    if(low[months_forward(start_date, i+t), j] != "GM"){
+      print(paste("Period no (i + 1): ", i + 1, "/192 - Stock no (j): ", j, "/10 - Progress: ", round((j + i * 10) / ( 192 * 10 ) * 100, digits = 2), "%" , sep = ""))
+      
+      subset <- price_data[paste0(months_forward(start_date, i), "/", months_forward(start_date, i+t)-1), low[months_forward(start_date, i+t), j]]
+      
+      #print(df[months_forward(start_date, i+t), j])
+      
+      subset_logreturns <- log(subset / lag(subset, 1, na.pad=TRUE))
+      subset_logreturns <- na.omit(subset_logreturns)
+      
+      x <- NULL
+      x <- get_garch_forecast(subset_logreturns, 21, p, q, garch_error_distr, 2611)
+      
+      if(j == 1){
+        forecasts_df <- x[[1]]
+      } else if(low[months_forward(start_date, i+t), j] == "DOW"){
+        tmp <- as.numeric(x[[1]])
+        forecasts_df <- cbind(forecasts_df, tmp)
+      } else {
+        forecasts_df <- cbind(forecasts_df, x[[1]])
+      }
+      
+      log_line <- paste0("[", Sys.time(), "] period: (", i + 1, "/192): ", months_forward(start_date, i), "/", months_forward(start_date, i+t)-1,
+                         " - stock: (", j, "/10): ", low[months_forward(start_date, i+t), j], 
+                         x[[2]])
+      
+      log_file <- rbind(log_file, log_line)
+      
+      forecasts_df_colnames <- c(forecasts_df_colnames, colnames(subset))
+      
+      #readline()
+    }
+  }
+  
+  colnames(forecasts_df) <- forecasts_df_colnames
+  
+  write.csv(forecasts_df, file = paste0(path, months_forward(start_date, i+t), ".csv", sep = ""))
+  
+  #print(df[months_forward(start_date, i+t)])
+  
+  
+  #print(paste(
+  #  "Estimation window: ", months_forward(start_date, i), "-", months_forward(start_date, i+t)-1,
+  #  "Rebalancing window: ", months_forward(start_date, i+t), "-", months_forward(start_date, i+t+f)-1))
+}
+
+write.table(log_file, file = paste0(path, "log.txt", sep = ""), sep = "", col.names = FALSE, row.names = FALSE, quote = FALSE)
+
+proc.time() - ptm
+```

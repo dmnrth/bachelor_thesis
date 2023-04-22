@@ -1,0 +1,120 @@
+---
+title: "03 Sensitivity analysis - Highest Cap, Medium Cap, Lowest Cap Portfolios - estimating capitalization and generating constitutents lists"
+---
+
+Loading required libraries
+
+```{r}
+libraries <- c("aTSA", "forecast", "nloptr", "rugarch", "quantmod", "xts", "zoo")
+
+for(i in libraries){
+  installed <- require(i, character.only = TRUE)
+  
+  if(installed == FALSE){
+    install.packages(i)
+  }
+}
+
+rm(i, installed, libraries)
+```
+
+Loading constituents list for the first day of every month
+
+```{r}
+df <- read.csv("c_list.csv", sep = ",", header = TRUE, row.names = 1)
+df <- as.xts(df)
+```
+
+Loading volume data
+
+```{r}
+load("price_data_volume.Rda")
+vol <- price_data
+```
+
+Loading price data
+
+```{r}
+load("price_data.Rda")
+```
+
+Initializing functions required to handle time data
+
+```{r}
+get_month_length <- function(date){
+  year <- as.numeric(format(date, '%Y'))
+  if((year %% 4 == 0 & year %% 100 != 0) | year %% 400 == 0){
+    month_days_number = c(31,29,31,30,31,30,31,31,30,31,30,31)
+  }else{
+    month_days_number = c(31,28,31,30,31,30,31,31,30,31,30,31)
+  }
+  
+  month <- as.numeric(format(date, '%m'))
+  return(month_days_number[month])
+}
+
+months_forward <- function(date, n){
+  if(n == 0){
+    return(date)
+  }
+  
+  new_date <- date
+  for(i in 1:n){
+    new_date = new_date + get_month_length(new_date)
+  }
+  
+  return(new_date)
+}
+```
+
+Getting ticker lists
+
+```{r}
+start_date <- as.Date("2006-01-01")
+
+low <- data.frame(row.names = index(df))
+mid <- data.frame(row.names = index(df))
+high <- data.frame(row.names = index(df))
+
+cap_est <- price_data * vol
+
+for(i in 0:191){
+  tickers <-  as.character(df[paste0(months_forward(start_date, i + 12))])
+  cap_est_m <- cap_est[paste0(months_forward(start_date, i), "/", months_forward(start_date, i + 12) - 1), tickers]
+  
+  cmean <- data.frame(matrix(nrow = 1, ncol = 30))
+  colnames(cmean) <- tickers
+  
+  for(j in tickers){
+    cmean[j] <- mean(cap_est_m[,j], na.rm = TRUE)
+  }
+  
+  sorted <- sort(cmean[1,], decreasing = TRUE)
+  
+  # 10 highest
+  
+  high[paste0(months_forward(start_date, i + 12)), 1:10] <- colnames(sorted[1:10])
+  
+  # 10 mid
+  
+  mid[paste0(months_forward(start_date, i + 12)), 1:10] <- colnames(sorted[11:20])
+  
+  # 10 lowest
+  
+  if(i <= 29){
+    low[paste0(months_forward(start_date, i + 12)), 1:9] <- colnames(sorted[21:29])
+    low[paste0(months_forward(start_date, i + 12)), 10] <- "GM"
+  } else {
+    low[paste0(months_forward(start_date, i + 12)), 1:10] <- colnames(sorted[21:30])
+  }
+
+}
+
+save(high, file = "df_high.Rda")
+write.csv2(data.frame(high), file = "df_high.csv")
+save(mid, file = "df_mid.Rda")
+write.csv2(data.frame(mid), file = "df_mid.csv")
+save(low, file = "df_low.Rda")
+write.csv2(data.frame(low), file = "df_low.csv")
+```
+
